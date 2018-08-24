@@ -1,3 +1,5 @@
+{-# LANGUAGE InstanceSigs #-}
+
 import Control.Applicative
 import Data.Traversable
 
@@ -35,53 +37,57 @@ instance Foldable (Constant a) where
 instance Traversable (Constant a) where
     traverse f (Constant x) = pure $ Constant x
 
-{-| OPTIONALS
+{-| OPTIONAL
 -}
+
 data Optional a
-    = None
-    | Has a
-    deriving (Eq, Show)
+  = Nil
+  | Ok a
+  deriving (Show, Eq)
 
 instance Functor Optional where
-    fmap f None = None
-    fmap f (Has x) = Has $ f x
+  fmap f Nil = Nil
+  fmap f (Ok x) = Ok (f x)
 
 instance Foldable Optional where
-    foldMap f None = mempty
-    foldMap f (Has x) = f x
+  foldMap _ Nil = mempty
+  foldMap f (Ok x) = f x
+
+instance Applicative Optional where
+  pure = Ok
+  (<*>) :: Optional (a -> b) -> Optional a -> Optional b
+  Nil <*> _ = Nil
+  (Ok f) <*> x = f <$> x
 
 instance Traversable Optional where
-    traverse f opts =
-        case fmap f opts of
-            None -> pure None
-            Has x -> fmap Has x
+  traverse :: Applicative f => (a -> f b) -> Optional a -> f (Optional b)
+  traverse _ Nil = pure Nil
+  traverse f (Ok x) = Ok <$> f x
 
-{-| LISTS
+{-| LIST
 -}
-data List a
-    = Nil
-    | Cons a
-           (List a)
-    deriving (Eq, Show)
 
-instance Monoid (List a) where
-    mempty = Nil
-    mappend xs ys =
-        case xs of
-            Nil -> ys
-            Cons head rest -> Cons head (rest `mappend` ys)
+data List a
+  = Empty
+  | a :|: List a
+  deriving (Show, Eq)
+
+infixr 5 :|:
 
 instance Functor List where
-    fmap f Nil = Nil
-    fmap f (Cons head rest) = Cons (f head) $ fmap f rest
+  fmap :: (a -> b) -> List a -> List b
+  fmap f Empty = Empty
+  fmap f (x :|: xs) = f x :|: fmap f xs
 
 instance Foldable List where
-    foldMap f Nil = mempty
-    foldMap f (Cons head rest) = f head `mappend` foldMap f rest
+  foldMap :: Monoid m => (a -> m) -> List a -> m
+  foldMap _ Empty = mempty
+  foldMap f (x :|: xs) = f x `mappend` foldMap f xs
 
 instance Traversable List where
-    traverse f = foldr (liftA2 Cons . f) (pure Nil)
-    sequence = foldr (liftA2 Cons) (pure Nil)
+  traverse :: Applicative f => (a -> f b) -> List a -> f (List b)
+  traverse _ Empty = pure Empty
+  traverse f (x :|: xs) = liftA2 (:|:) (f x) (traverse f xs)
 
 {-| Three arg constructors
 -}
@@ -149,28 +155,28 @@ instance Foldable (Bigger a) where
 instance Traversable (Bigger a) where
     traverse f (Bigger a x x' x'') = liftA3 (Bigger a) (f x) (f x') (f x'')
 
-{-| TREE!
+{-| TREE
 -}
+
 data Tree a
-    = Empty
-    | Leaf a
-    | Node (Tree a)
-           a
-           (Tree a)
-    deriving (Eq, Show)
+  = EmptyTree
+  | Leaf a
+  | Node (Tree a)
+         a
+         (Tree a)
+  deriving (Eq, Show)
 
 instance Functor Tree where
-    fmap f Empty = Empty
-    fmap f (Leaf a) = Leaf (f a)
-    fmap f (Node left root right) = Node (fmap f left) (f root) (fmap f right)
+  fmap f EmptyTree = EmptyTree
+  fmap f (Leaf x) = Leaf (f x)
+  fmap f (Node left root right) = Node (fmap f left) (f root) (fmap f right)
 
 instance Foldable Tree where
-    foldMap f tree =
-        case tree of
-            Empty -> mempty
-            Leaf a -> f a
-            Node left root right ->
-                mconcat [foldMap f left, f root, foldMap f right]
+  foldMap f EmptyTree = mempty
+  foldMap f (Leaf x) = f x
+  foldMap f (Node left root right) = foldMap f left `mappend` f root `mappend` foldMap f right
 
 instance Traversable Tree where
-    traverse f = foldr (liftA2 (Node Empty) . f) (pure Empty)
+  traverse f EmptyTree = pure EmptyTree
+  traverse f (Leaf x) = Leaf <$> f x
+  traverse f (Node left root right) = liftA3 Node (traverse f left) (f root) (traverse f right)
